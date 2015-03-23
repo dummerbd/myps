@@ -43,8 +43,6 @@ while getopts ':ep:U:C:' opt; do
     # specifying any option disables filtering by current TTY
     show_tty=false
 
-    echo 'opt =' $opt 'OPTARG =' $OPTARG
-
     case $opt in
         e)
             show_all=true
@@ -69,3 +67,7 @@ while getopts ':ep:U:C:' opt; do
     esac
 done
 
+# Visit each PID directory in the proc filesystem and gather information
+# from each process's stat file. Collects the following attributes:
+# 
+# uid,pid,tty,cputime,cmd
