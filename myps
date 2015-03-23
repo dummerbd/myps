@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# -------------------------
+# program:  myps
+# date:     Mar 22nd, 2015
+# author:   Benjamin Dummer
+# course:   CS4520
+# -------------------------
+
+# These are used to filter processes based on command line options. By
+# default, only processes running on the current TTY are shown.
+show_tty=`tty | sed -e 's:/dev/::'`
+show_all=false
+show_pid=false
+show_uid=false
+show_cmd=false
+
+function print_missing_arg_error {
+    case $OPTARG in
+        p)
+            echo "error: expected a process ID after -p"
+            ;;
+        U)
+            echo "error: expected a user ID after -U"
+            ;;
+        C)
+            echo "error: expected a command name after -C"
+            ;;
+    esac
+}
+
+function print_usage {
+    echo -e "Usage:\n ps [options]\n\nOptions are:\n -e\n -p <pid>\n -U <uid>\n -C <cmd>"
+}
+
+# Accept one of the following arguments (combinations of or more are not
+# supported):
+#  -e           show all processes
+#  -p <pid>     show process with a particular pid (including children)
+#  -U <userid>  show processes for a userid
+#  -C <cmd>     show processed started by cmd
+while getopts ':ep:U:C:' opt; do
+    # specifying any option disables filtering by current TTY
+    show_tty=false
+
+    echo 'opt =' $opt 'OPTARG =' $OPTARG
+
+    case $opt in
+        e)
+            show_all=true
+            ;;
+        p)
+            show_pid=$OPTARG
+            ;;
+        U)
+            show_uid=$OPTARG
+            ;;
+        C)
+            show_cmd=$OPTARG
+            ;;
+        :)
+            print_missing_arg_error
+            exit -1
+            ;;
+        \?)
+            print_usage
+            exit -1
+            ;;
+    esac
+done
+
