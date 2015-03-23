@@ -67,7 +67,31 @@ while getopts ':ep:U:C:' opt; do
     esac
 done
 
-# Visit each PID directory in the proc filesystem and gather information
-# from each process's stat file. Collects the following attributes:
-# 
-# uid,pid,tty,cputime,cmd
+# Get the PID of all running processes, or narrow down to 1 if the -p
+# option was used.
+if [[ $show_pid != false ]]; then
+    pids=$show_pid
+else
+    pids=`ls -lg --time-style=+ /proc | awk '{ if ($5 ~ /[0-9]+/) print $5 }' | sort -n`
+fi
+
+# Collects the following attributes from /proc/<pid>/stat: pid,tty_nr,cpu_time,cmd
+function get_pid_stat {
+    PID_STAT=`cat /proc/$1/stat 2>/dev/null | awk '{print $1 "," $7 "," $14 "," $2}' | sed -e 's:[\(\)]::g'`
+}
+
+# Gather stats for each process
+stats=''
+for pid in $pids; do
+    PID_STAT=''
+    # Allow filtering by UID
+    if [[ $show_uid == false || ( $show_uid != false && $(stat -c%u 2>/dev/null /proc/$pid) == $show_uid ) ]]; then
+        get_pid_stat $pid
+    fi
+    # Allow filtering by CMD
+    if [[ $show_cmd == false || ( $show_cmd != false && $PID_STAT =~ ",$show_cmd"$ ) ]]; then
+        stats="$stats $PID_STAT"
+    fi
+done
+
+echo $stats | tr ' ' '\n'
