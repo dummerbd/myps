@@ -10,28 +10,37 @@
 # These are used to filter processes based on command line options. By
 # default, only processes running on the current TTY are shown.
 show_tty=`tty | sed -e 's:/dev/::'`
-show_all=false
 show_pid=false
 show_uid=false
 show_cmd=false
 
+
+# Convert the current TTY device to a tty_nr for filtering later
+if [[ $show_tty =~ pts\/([0-9]+) ]]; then
+    # Use major device number 136 << 8
+    show_tty=$((34816 + ${BASH_REMATCH[1]}))
+elif [[ $show_tty =~ tty([0-9]+) ]]; then
+    # Use major device number 4 << 8
+    show_tty=$((1024 + ${BASH_REMATCH[1]}))
+else
+    # Don't filter by TTY if device number can't be determined
+    show_tty=false
+fi
+
+
 function print_missing_arg_error {
     case $OPTARG in
-        p)
-            echo "error: expected a process ID after -p"
-            ;;
-        U)
-            echo "error: expected a user ID after -U"
-            ;;
-        C)
-            echo "error: expected a command name after -C"
-            ;;
+        p)  echo "error: expected a process ID after -p" ;;
+        U)  echo "error: expected a user ID after -U" ;;
+        C)  echo "error: expected a command name after -C" ;;
     esac
 }
+
 
 function print_usage {
     echo -e "Usage:\n ps [options]\n\nOptions are:\n -e\n -p <pid>\n -U <uid>\n -C <cmd>"
 }
+
 
 # Accept one of the following arguments (combinations of or more are not
 # supported):
@@ -44,28 +53,17 @@ while getopts ':ep:U:C:' opt; do
     show_tty=false
 
     case $opt in
-        e)
-            show_all=true
-            ;;
-        p)
-            show_pid=$OPTARG
-            ;;
-        U)
-            show_uid=$OPTARG
-            ;;
-        C)
-            show_cmd=$OPTARG
-            ;;
-        :)
-            print_missing_arg_error
-            exit -1
-            ;;
-        \?)
-            print_usage
-            exit -1
-            ;;
+        e)  : ;;    # nothing needed here, since show_tty=false will show everything
+        p)  show_pid=$OPTARG ;;
+        U)  show_uid=$OPTARG ;;
+        C)  show_cmd=$OPTARG ;;
+        :)  print_missing_arg_error
+            exit -1 ;;
+        \?) print_usage
+            exit -1 ;;
     esac
 done
+
 
 # Get the PID of all running processes, or narrow down to 1 if the -p
 # option was used.
@@ -75,23 +73,38 @@ else
     pids=`ls -lg --time-style=+ /proc | awk '{ if ($5 ~ /[0-9]+/) print $5 }' | sort -n`
 fi
 
-# Collects the following attributes from /proc/<pid>/stat: pid,tty_nr,cpu_time,cmd
+
+# Collects the following attributes from /proc/<pid>/stat: 
+#   pid,tty_nr,cpu_time,cmd
 function get_pid_stat {
-    PID_STAT=`cat /proc/$1/stat 2>/dev/null | awk '{print $1 "," $7 "," $14 "," $2}' | sed -e 's:[\(\)]::g'`
+    PID_STAT=`cat /proc/$1/stat 2>/dev/null | awk '{print $1 "," $7 "," $14+$15 "," $2}' | sed -e 's:[\(\)]::g'`
 }
+
 
 # Gather stats for each process
 stats=''
 for pid in $pids; do
     PID_STAT=''
-    # Allow filtering by UID
+
+    # Allow filtering by UID, this conditional expression takes advantage
+    # of short-circuited evaluation to skip the extra stat command when
+    # show_uid=false.
     if [[ $show_uid == false || ( $show_uid != false && $(stat -c%u 2>/dev/null /proc/$pid) == $show_uid ) ]]; then
         get_pid_stat $pid
     fi
-    # Allow filtering by CMD
-    if [[ $show_cmd == false || ( $show_cmd != false && $PID_STAT =~ ",$show_cmd"$ ) ]]; then
-        stats="$stats $PID_STAT"
+
+    # If CMD filtering is enabled, filter out non-matches
+    if [[ $show_cmd != false && !( $PID_STAT =~ ",$show_cmd"$ ) ]]; then
+        PID_STAT=''
     fi
+
+    # If current TTY filtering is enabled, filter out non-matches
+    if [[ $show_tty != false && !( $PID_STAT =~ ^[0-9]+",$show_tty" ) ]]; then
+        PID_STAT=''
+    fi
+
+    stats="$stats $PID_STAT"
 done
+
 
 echo $stats | tr ' ' '\n'
