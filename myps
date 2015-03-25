@@ -15,6 +15,12 @@ show_uid=false
 show_cmd=false
 
 
+# This is used later on to convert jiffies to seconds. It relies on an
+# external program; if not found then it will fall back on the semi-
+# standard conversion of 100.
+[[ -x ./get_hz ]] && USER_HZ=`./get_hz` || USER_HZ=100
+
+
 # Convert the current TTY device to a tty_nr for filtering later
 if [[ $show_tty =~ pts\/([0-9]+) ]]; then
     # Use major device number 136 << 8
@@ -81,8 +87,35 @@ function get_pid_stat {
 }
 
 
-# Gather stats for each process
-stats=''
+# Converts tty_nr to a human-friendly name and converts CPU jiffies to
+# hh:mm:ss, then pretty prints results.
+function print_pid_stat {
+    s=($(echo $PID_STAT | tr ',' '\n'))
+
+    tty_nr=$(( ${s[1]} >> 8 ))
+    min_nr=$(( (${s[1]} >> 16) + (${s[1]} & 0xf) ))
+    if (( $tty_nr >= 136 && $tty_nr <= 143 )); then
+        tty_nr="pts/$min_nr"
+    elif (( $tty_nr == 4 )); then
+        tty_nr="tty$min_nr"
+    else
+        tty_nr="?"
+    fi
+
+    tot_s=$(( ${s[2]} / $USER_HZ ))
+    sec=$(( tot_s % 60 ))
+    tot_m=$(( tot_s / 60 ))
+    min=$(( tot_m % 60 ))
+    hour=$(( tot_m / 60 ))
+
+    printf '%5d %-8s %02d:%02d:%02d %s\n' ${s[0]} $tty_nr $hour $min $sec ${s[3]}
+}
+
+# Print headers
+echo '  PID TTY          TIME CMD'
+
+
+# Gather stats for each process, then print each
 for pid in $pids; do
     PID_STAT=''
 
@@ -103,8 +136,5 @@ for pid in $pids; do
         PID_STAT=''
     fi
 
-    stats="$stats $PID_STAT"
+    [[ $PID_STAT ]] && print_pid_stat
 done
-
-
-echo $stats | tr ' ' '\n'
