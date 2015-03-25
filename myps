@@ -15,19 +15,13 @@ show_uid=false
 show_cmd=false
 
 
-# This is used later on to convert jiffies to seconds. It relies on an
-# external program; if not found then it will fall back on the semi-
-# standard conversion of 100.
-[[ -x ./get_hz ]] && USER_HZ=`./get_hz` || USER_HZ=100
-
-
 # Convert the current TTY device to a tty_nr for filtering later
 if [[ $show_tty =~ pts\/([0-9]+) ]]; then
     # Use major device number 136 << 8
-    show_tty=$((34816 + ${BASH_REMATCH[1]}))
+    show_tty=$(( 34816 + ${BASH_REMATCH[1]} ))
 elif [[ $show_tty =~ tty([0-9]+) ]]; then
     # Use major device number 4 << 8
-    show_tty=$((1024 + ${BASH_REMATCH[1]}))
+    show_tty=$(( 1024 + ${BASH_REMATCH[1]} ))
 else
     # Don't filter by TTY if device number can't be determined
     show_tty=false
@@ -71,7 +65,7 @@ while getopts ':ep:U:C:' opt; do
 done
 
 
-# Get the PID of all running processes, or narrow down to 1 if the -p
+# Get the PID of all running processes, or narrow down to one if the -p
 # option was used.
 if [[ $show_pid != false ]]; then
     pids=$show_pid
@@ -92,8 +86,12 @@ function get_pid_stat {
 function print_pid_stat {
     s=($(echo $PID_STAT | tr ',' '\n'))
 
-    tty_nr=$(( ${s[1]} >> 8 ))
-    min_nr=$(( (${s[1]} >> 16) + (${s[1]} & 0xf) ))
+    # Major device number stored in bits 15-8
+    tty_nr=$(( (${s[1]} >> 8) & 0xff ))
+
+    # Minor device number is combination of bits 31-20 and 7-0
+    min_nr=$(( ((${s[1]} >> 12) & 0xfff0) + (${s[1]} & 0xff) ))
+
     if (( $tty_nr >= 136 && $tty_nr <= 143 )); then
         tty_nr="pts/$min_nr"
     elif (( $tty_nr == 4 )); then
@@ -102,7 +100,8 @@ function print_pid_stat {
         tty_nr="?"
     fi
 
-    tot_s=$(( ${s[2]} / $USER_HZ ))
+    # Convert jiffies to seconds, minutes, and hours
+    tot_s=$(( ${s[2]} / `getconf CLK_TCK` ))
     sec=$(( tot_s % 60 ))
     tot_m=$(( tot_s / 60 ))
     min=$(( tot_m % 60 ))
@@ -110,6 +109,7 @@ function print_pid_stat {
 
     printf '%5d %-8s %02d:%02d:%02d %s\n' ${s[0]} $tty_nr $hour $min $sec ${s[3]}
 }
+
 
 # Print headers
 echo '  PID TTY          TIME CMD'
@@ -136,5 +136,8 @@ for pid in $pids; do
         PID_STAT=''
     fi
 
+    # Print non-blank statuses
     [[ $PID_STAT ]] && print_pid_stat
 done
+
+exit 0
